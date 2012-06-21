@@ -15,7 +15,8 @@ UAV::UAV() {
     yVel=0;
     xAcc=0;
     yAcc=0;
-    routpoints.clear();
+    bearing=0;
+    avoidancepoints.clear();
     waypoints.clear();
 }
 
@@ -26,7 +27,8 @@ UAV::UAV(double myx, double myy){
     yVel=0;
     xAcc=0;
     yAcc=0;
-    routpoints.clear();
+    bearing=0;
+    avoidancepoints.clear();
     waypoints.clear();
 }
 
@@ -37,7 +39,8 @@ UAV::UAV(double myx, double myy, double myxVel, double myyVel){
     myyVel=0;
     xAcc=0;
     yAcc=0;
-    routpoints.clear();
+    bearing=0;
+    avoidancepoints.clear();
     waypoints.clear();
 }
 UAV::UAV(double myx, double myy, double myxVel, double myyVel, double myxAcc, double myyAcc){    
@@ -47,7 +50,8 @@ UAV::UAV(double myx, double myy, double myxVel, double myyVel, double myxAcc, do
     yVel=myxVel;
     xAcc=myxAcc;
     yAcc=myyAcc;
-    routpoints.clear();
+    bearing=0;
+    avoidancepoints.clear();
     waypoints.clear();
 }
 
@@ -99,7 +103,12 @@ void UAV::setYAcc(double newyAcc){
 }
 
 
+double UAV::getBearing() {
+    return bearing;
+}
 
-
+void UAV::setBearing(double newBearing) {
+    bearing=newBearing;
+}
 
 

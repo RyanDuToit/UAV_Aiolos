@@ -6,7 +6,7 @@
 //  Copyright 2012 __MyCompanyName__. All rights reserved.
 //
 #include <vector.h>
-#include "Point.h"
+#include "AU_UAV_ROS/Point.h"
 class UAV {
 private:
     double x;
@@ -15,9 +15,10 @@ private:
     double yVel;
     double xAcc;
     double yAcc;
+    double bearing;
     
 public:
-    vector<Point> routpoints;
+    vector<Point> avoidancepoints;
     vector<Point> waypoints;
     
     UAV();
@@ -39,4 +40,6 @@ public:
     void setXAcc(double xAcc);
     double getYAcc();
     void setYAcc(double yACC);
+    double getBearing();
+    void setBearing(double bearing);
 };

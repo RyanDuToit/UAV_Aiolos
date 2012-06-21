@@ -19,10 +19,10 @@
 #include "dubins.h"
 #include "UAV.h"
 
-#define rho 11.176/22.5 //TODO-check if units are correct, this is currently in meters/degree
+#define rho 15/(22.5*(M_PI/180.0)) //TODO-check if units are correct, this is currently in meters/radian
 #define TIMESTEP 1 
 #define UAV_AIRSPEED 11.176
-#define WEST_MOST_LONGITUDE -85.490356
+#define WEST_MOST_LONGITUDE (-85.490356)
 #define NORTH_MOST_LATITUDE 32.606573
 #define METERS_TO_LATITUDE (1.0/111200.0)
 #define EARTH_RADIUS 6371000.0 //meters
@@ -37,7 +37,7 @@ ros::ServiceClient getWaypointsClient;
 //keeps count of the number of services requested
 int count;
 
-std::map<int, UAV> uavMap;
+std::map<int, UAV*> uavMap;
 //this function is run everytime new telemetry information from any plane is recieved
 
 
@@ -66,7 +66,7 @@ This only works for latitudes around 32.6 degrees north*/
 //TODO-make this work for any NORTH_MOST_LATITUDE
 double* getLatitudeLongitude(double x, double y) {
     double* result = new double[2];
-    *result = NORTH_MOST_LATITUDE-(y/EARTH_RADIUS);
+    *result = NORTH_MOST_LATITUDE+(y/EARTH_RADIUS);
     *(result+1)= (0.00001065*x)+WEST_MOST_LONGITUDE;
     return result;
 }
@@ -96,7 +96,12 @@ double* findXYCoordinate(double longitude, double latitude) {
     double result[2] = {EARTH_RADIUS*x,EARTH_RADIUS*y};
     double* ptr = new double[2];
     ptr[0] = result[0];
-    ptr[1] = result[1];
+    if(latitude>NORTH_MOST_LATITUDE) {
+        ptr[1] = result[1];
+   }
+    else {
+        ptr[1] = -result[1];
+    }
     return ptr;
 }
 
@@ -145,7 +150,8 @@ DubinsPath* setupDubins(UAV* myUAV,int myPlaneID) {
     double q1[3];
     q0[0]=myUAV->getX();
     q0[1]=myUAV->getY();
-    q0[2]=myUAV->getBearing();
+    q0[2]=myUAV->getBearing()*DEGREES_TO_RADIANS;
+    ROS_INFO("3. currentuavbering = %f ", myUAV->getBearing());
     int i = 0;
     Point waypoints[2];
     //grab the xy coordinates of the next 2 waypoints
@@ -158,35 +164,27 @@ DubinsPath* setupDubins(UAV* myUAV,int myPlaneID) {
             double* xyLocation = findXYCoordinate(srv.response.longitude, srv.response.latitude);
             waypoints[i].setX(xyLocation[0]);
             waypoints[i].setY(xyLocation[1]); 
+            delete [] xyLocation;
         }
     }
     //set x and y to the next waypoint as the endpoint of this dubins path
     q1[0]=waypoints[0].getX();
     q1[1]=waypoints[0].getY();
-    
+
     //get bearing for the plane to be at when it reaches the end of path
     double deltaX = waypoints[1].getX()-waypoints[0].getX();
     double deltaY = waypoints[1].getY()-waypoints[0].getY();
-    double anglebetween = atan(deltaY/deltaX)*RADIANS_TO_DEGREES;
-    double bearing;
-    if (deltaX>=0 && deltaY>=0) {
-        bearing = anglebetween;
-    }
-    else if (deltaX<0 && deltaY>=0) {
-        bearing = anglebetween+90;
-    }
-    else if (deltaX<0 && deltaY<0) {
-        bearing = anglebetween+180;
-    }
-    else if (deltaX>=0 && deltaY<0) {
-        bearing = anglebetween+270;
-    }
-    //set bearing
-    q1[2]=bearing;
+
+    q1[2]=atan2(deltaY,deltaX); //in radians
     //create path
+    ROS_INFO("q0[0]=%f  q0[1]=%f  q0[2]=%f",q0[0],q0[1],q0[2]);
+    ROS_INFO("q1[0]=%f  q1[1]=%f  q1[2]=%f",q1[0],q1[1],q1[2]);
     dubins_init(q0,q1,rho,myDubinsPath);
-    return *myDubinsPath;
+    return myDubinsPath;
 }
+
+
+
 
 /*called whenever a telemetry update is made*/
 void telemetryCallback(const AU_UAV_ROS::TelemetryUpdate::ConstPtr& msg)
@@ -203,34 +201,25 @@ void telemetryCallback(const AU_UAV_ROS::TelemetryUpdate::ConstPtr& msg)
     //see if our uav is in map
     if (uavMap.count(msg->planeID)==0) {
         currentUAV = new UAV;
-        uavMap[msg->planeID] = *currentUAV;
-        //TODO-set x and y velocities if on first runthrough
-        //TODO-use meters not long lat
+        uavMap[msg->planeID] = currentUAV;
         currentUAV->setXVel(0);
         currentUAV->setYVel(UAV_AIRSPEED);
-        //ROS_INFO("front %f", currentUAV->waypoints.front().getX());
+        currentUAV->setBearing(90.);
+        ROS_INFO("1. current bearing %f", currentUAV->getBearing());
+        ROS_INFO("check %f",uavMap[msg->planeID]->getBearing());
     }
     else {
         //set currentuav pointer and the uav's bearing
-        currentUAV = &(uavMap[msg->planeID]);
-        double* currentXY = findXYCoordinate(msg->currentLongitude,msg->currentLatitude);
-        double deltaX = currentUAV->getX()-currentXY[0];
-        double deltaY = currentUAV->getY()-currentXY[1];
-        double anglebetween = atan(deltaY/deltaX)*RADIANS_TO_DEGREES;
-        double bearing;
-        if (deltaX>=0 && deltaY>=0) {
-            bearing = anglebetween;
-        }
-        else if (deltaX<0 && deltaY>=0) {
-            bearing = anglebetween+90;
-        }
-        else if (deltaX<0 && deltaY<0) {
-            bearing = anglebetween+180;
-        }
-        else if (deltaX>=0 && deltaY<0) {
-            bearing = anglebetween+270;
-        }
-        currentUAV->setBearing(bearing);
+        currentUAV = uavMap[msg->planeID];
+        double deltaX = currentXY[0]-currentUAV->getX();
+        double deltaY = currentXY[1]-currentUAV->getY();
+        if(msg->currentWaypointIndex!=-1) {
+            ROS_INFO("if statement triggered");
+            currentUAV->setBearing(atan2(deltaY, deltaX)*RADIANS_TO_DEGREES);
+            ROS_INFO("delta y = %f, delta x = %f",deltaY, deltaX);  
+        }  
+        ROS_INFO("2. current bearing %f", currentUAV->getBearing());
+   
     }
     //if no waypoints yet, fill it up for our uav
     if(currentUAV->waypoints.size()<1) {
@@ -239,50 +228,95 @@ void telemetryCallback(const AU_UAV_ROS::TelemetryUpdate::ConstPtr& msg)
     
     currentUAV->setX(currentXY[0]);
     currentUAV->setY(currentXY[1]);
-    ROS_INFO("rocking plane %i %f %f %i", msg->planeID,    currentUAV->getX(), currentUAV->getXVel(), msg->currentWaypointIndex);
+    double* targetXY = findXYCoordinate(msg->destLongitude, msg->destLatitude);
+    ROS_INFO("rocking plane %i x=%f y=%f targetWaypointx=%f targetWaypointY=%f index=%i", msg->planeID,    currentUAV->getX(), currentUAV->getY(),targetXY[0], targetXY[1], msg->currentWaypointIndex);
     
-    
+    delete [] targetXY;
+    delete [] currentXY;
     
     //if no path exists, and we have a place to go, create the path
-    if (currentUAV->avoidancepoints.size()==0 && 
-        currentUAV->waypoints.size()>1) {
+    
+    AU_UAV_ROS::RequestWaypointInfo service;
+    service.request.planeID=msg->planeID;
+    service.request.isAvoidanceWaypoint = true;
+    service.request.positionInQueue = 0;
+    if(getWaypointsClient.call(service)) {
+         ROS_INFO("Received response from service request %d", (count++));
+         ROS_INFO("target latitude is %f   longitude is %f ",service.response.latitude, service.response.longitude);
+     }
+    else {
+         ROS_ERROR("Did not receive response");
+     }
+    //if we have a new point and our avoidancepoints are nill. and we have more than one more waypoint left.
+    if (service.response.latitude<0 &&
+        currentUAV->avoidancepoints.size()==0 && 
+        currentUAV->waypoints.size()>1 ) {
+        ROS_INFO("1. current bearing %f", currentUAV->getBearing());
+
+        //create a new dubins path that goes from current position to next waypoint
         DubinsPath* newDubinspath = setupDubins(currentUAV, msg->planeID);
         int i=0;
         double q[3];
-        int step = 0;
+        int step = 1;
         while (i==0) {
-            i = dubins_path_sample(newDubinspath,UAV_AIRSPEED*step,q);
+        //step along dubins path and create waypoints at these points
+            i = dubins_path_sample(newDubinspath,(UAV_AIRSPEED+.5)*step,q);
             Point newAvoidancePoint = Point(q[0],q[1]);
-            currentUAV->avoidancepoints.push_back(newAvoidancePoint);
+            double* latlong=getLatitudeLongitude(q[0],q[1]);
+            ROS_INFO("avoidance point %i:  x=%f, y=%f, lat=%f, long=%f",step,q[0],q[1],latlong[0],latlong[1]);
+            delete [] latlong;
+            currentUAV->avoidancepoints.push_back(newAvoidancePoint);            
             step++;
         }
-        delete newDubinsPath;
-    } 
-    
-    //diagnostics     
-    if(msg->planeID==0){
-        for(int i = 0;i<currentUAV->avoidancepoints.size();i++)
-        {
-            ROS_INFO("dubins x: %f y: %f",currentUAV->avoidancepoints.at(i).getX(), currentUAV->avoidancepoints.at(i).getY());
-            double* result = getLatitudeLongitude(currentUAV->avoidancepoints.at(i).getX(),currentUAV->avoidancepoints.at(i).getY());
-            ROS_INFO("dubins locations: %f %f",result[0],result[1]);
-            delete [] result;
+        currentUAV->avoidancepoints.pop_back(); //there seems to be 1 extra waypoint at end of avoidancepoints
+        delete newDubinspath; 
+        
+        
+        
+            
+        while(currentUAV->avoidancepoints.size()>0) {
+            bool firsttime = true;
+            AU_UAV_ROS::GoToWaypoint srv;
+            srv.request.planeID = msg->planeID;
+            double* resultlatlong = getLatitudeLongitude(currentUAV->avoidancepoints.front().getX(),
+                                                         currentUAV->avoidancepoints.front().getY());
+            srv.request.latitude  = resultlatlong[0];
+            srv.request.longitude = resultlatlong[1];
+            srv.request.altitude  = 400;
+            currentUAV->avoidancepoints.erase(currentUAV->avoidancepoints.begin());
+            //these settings mean it is an avoidance maneuver waypoint AND not to clear the avoidance queue
+            srv.request.isAvoidanceManeuver = true;
+            if(firsttime) {
+                srv.request.isNewQueue = true;
+                firsttime = false;
+            }
+            srv.request.isNewQueue = false;
+            if(client.call(srv)) {
+                //ROS_INFO("Added avoidance waypoint x=%f y=%f lat=%f long=%f",0.,0.,srv.request.latitude,srv.request.longitude);
+            }
+            else {
+                ROS_ERROR("Did not receive response");
+            }
+            delete [] resultlatlong;
         }
-    }
+        
     
+        //check to make sure the client call worked (regardless of return values from service)   
+    } 
+   
+
     
     
     //if we have a place to go, then lets go there
-    
+    //not currently working....
+    /*
     if(currentUAV->avoidancepoints.size() > 0) {
         AU_UAV_ROS::GoToWaypoint srv;
         srv.request.planeID = msg->planeID;
         double* resultlatlong = getLatitudeLongitude(currentUAV->avoidancepoints.front().getX(),currentUAV->avoidancepoints.front().getY());
         srv.request.latitude = resultlatlong[0];
         srv.request.longitude = resultlatlong[1];
-        srv.request.altitude = 400;
-                
-                
+        srv.request.altitude = 400;      
         currentUAV->avoidancepoints.erase(currentUAV->avoidancepoints.begin());
         //these settings mean it is an avoidance maneuver waypoint AND to clear the avoidance queue
         srv.request.isAvoidanceManeuver = true;
@@ -298,8 +332,8 @@ void telemetryCallback(const AU_UAV_ROS::TelemetryUpdate::ConstPtr& msg)
             ROS_ERROR("Did not receive response");
         }
         delete [] resultlatlong;
-    }
-    
+    }  
+    */
     
 }
 
@@ -313,32 +347,15 @@ int main(int argc, char **argv) {
 	client = n.serviceClient<AU_UAV_ROS::GoToWaypoint>("go_to_waypoint");
     getWaypointsClient = n.serviceClient<AU_UAV_ROS::RequestWaypointInfo>("request_waypoint_info");
     
+    
+    
 	//random seed for if statement in telemetryCallback, remove when collision avoidance work begins
 	srand(time(NULL));
 	//initialize counting
 	count = 0;
-    ROS_INFO("startingLongitude %f", WEST_MOST_LONGITUDE);
-    ROS_INFO("startingLatitude %f", NORTH_MOST_LATITUDE);
-    double* result = findXYCoordinate(WEST_MOST_LONGITUDE,32.602);
-    ROS_INFO("distance from top to bottom(y): %f", *(result+1));
-    ROS_INFO("distance from left to right(x): %f", *result);
-    double q1[3];
-    double q2[3];
-    q1[0] = NORTH_MOST_LATITUDE;
-    q1[1] = WEST_MOST_LONGITUDE;
-    q1[2] = 0;
-    q2[0] = 32.602;
-    q2[1] = WEST_MOST_LONGITUDE;
-    q2[2] = 0;
-    //double mydistance = distance(q1,q2);
-    //ROS_INFO("distance: %f", mydistance);
     
     
-    double* newresult = getLatitudeLongitude(*result, *(result+1));
     
-    ROS_INFO("finalLatitude %f", *newresult);
-    ROS_INFO("finalLongitude %f", *(newresult+1));
-    delete [] newresult;
 	//needed for ROS to wait for callbacks
 	ros::spin();
 	

@@ -29,3 +29,7 @@ void Point::setX(double newX) {
 void Point::setY(double newY) {
     y=newY;
 }
+Point::~Point() {
+    delete this->x;
+    delete this->y;
+}

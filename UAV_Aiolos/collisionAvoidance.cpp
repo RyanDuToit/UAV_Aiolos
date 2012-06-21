@@ -139,7 +139,7 @@ Point getWaypoint(UAV *myUav, int myPlaneID) {
 
 /* this method returns a dubins path for a UAV that would take it to the next waypoint
  should be called whenever a path needs to be calculated */
-DubinsPath setupDubins(UAV* myUAV,int myPlaneID) {
+DubinsPath* setupDubins(UAV* myUAV,int myPlaneID) {
     DubinsPath* myDubinsPath = new DubinsPath;
     double q0[3];
     double q1[3];
@@ -246,16 +246,17 @@ void telemetryCallback(const AU_UAV_ROS::TelemetryUpdate::ConstPtr& msg)
     //if no path exists, and we have a place to go, create the path
     if (currentUAV->avoidancepoints.size()==0 && 
         currentUAV->waypoints.size()>1) {
-        DubinsPath newDubinspath = setupDubins(currentUAV, msg->planeID);
+        DubinsPath* newDubinspath = setupDubins(currentUAV, msg->planeID);
         int i=0;
         double q[3];
         int step = 0;
         while (i==0) {
-            i = dubins_path_sample(&newDubinspath,UAV_AIRSPEED*step,q);
+            i = dubins_path_sample(newDubinspath,UAV_AIRSPEED*step,q);
             Point newAvoidancePoint = Point(q[0],q[1]);
             currentUAV->avoidancepoints.push_back(newAvoidancePoint);
             step++;
         }
+        delete newDubinsPath;
     } 
     
     //diagnostics     
@@ -265,6 +266,7 @@ void telemetryCallback(const AU_UAV_ROS::TelemetryUpdate::ConstPtr& msg)
             ROS_INFO("dubins x: %f y: %f",currentUAV->avoidancepoints.at(i).getX(), currentUAV->avoidancepoints.at(i).getY());
             double* result = getLatitudeLongitude(currentUAV->avoidancepoints.at(i).getX(),currentUAV->avoidancepoints.at(i).getY());
             ROS_INFO("dubins locations: %f %f",result[0],result[1]);
+            delete [] result;
         }
     }
     
@@ -282,7 +284,6 @@ void telemetryCallback(const AU_UAV_ROS::TelemetryUpdate::ConstPtr& msg)
                 
                 
         currentUAV->avoidancepoints.erase(currentUAV->avoidancepoints.begin());
-
         //these settings mean it is an avoidance maneuver waypoint AND to clear the avoidance queue
         srv.request.isAvoidanceManeuver = true;
         srv.request.isNewQueue = true;
@@ -296,6 +297,7 @@ void telemetryCallback(const AU_UAV_ROS::TelemetryUpdate::ConstPtr& msg)
         else {
             ROS_ERROR("Did not receive response");
         }
+        delete [] resultlatlong;
     }
     
     
@@ -320,7 +322,6 @@ int main(int argc, char **argv) {
     double* result = findXYCoordinate(WEST_MOST_LONGITUDE,32.602);
     ROS_INFO("distance from top to bottom(y): %f", *(result+1));
     ROS_INFO("distance from left to right(x): %f", *result);
-    
     double q1[3];
     double q2[3];
     q1[0] = NORTH_MOST_LATITUDE;
@@ -337,7 +338,7 @@ int main(int argc, char **argv) {
     
     ROS_INFO("finalLatitude %f", *newresult);
     ROS_INFO("finalLongitude %f", *(newresult+1));
-    
+    delete [] newresult;
 	//needed for ROS to wait for callbacks
 	ros::spin();
 	
